@@ -4,11 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node server.js --dev",
+    "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "node server.js",
-    "start": "node server.js"
+    "preview": "vite preview"
   },
   "dependencies": {
     "react": "^19.2.0",

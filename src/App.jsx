@@ -1,21 +1,65 @@
 import { useEffect, useState } from "react";
 
-import { createInitialData, defaultExpanded, mkSteps } from "./trackerDefaults";
+const STORAGE_KEY = "project-nautica-tracker-v1";
+const EXPANDED_STORAGE_KEY = "project-nautica-expanded-v1";
 
-const API_URL = "/api/tracker";
+// steps: 0 = default, 1 = blue (in progress), 2 = orange (done)
+const mkSteps = () => [0, 0, 0, 0, 0, 0];
 
-const stepLabels = [
-  "Vooronderzoek",
-  "Review vooronderzoek",
-  "Verkenning",
-  "Onderzoek",
-  "Review Onderzoek",
-  "Advies schrijven",
-];
+const createInitialData = () => ({
+  "Architectuur": [
+    { id: "arch-1", name: "Toetsen concept", steps: mkSteps(), substeps: [] },
+    {
+      id: "arch-2", name: "Auth. Layer", steps: mkSteps(),
+      substeps: [
+        { id: "arch-2-a", name: "Authentication", steps: mkSteps() },
+        { id: "arch-2-b", name: "Authorization",  steps: mkSteps() },
+      ],
+    },
+    { id: "arch-3", name: "UI Layer", steps: mkSteps(), substeps: [] },
+    {
+      id: "arch-4", name: "Logic Layer", steps: mkSteps(), substeps: [
+        { id: "arch-4-a", name: "Opdelen applicatie", steps: mkSteps() },
+        { id: "arch-4-b", name: "Domein communicatie",  steps: mkSteps() },
+      ],
+    },
+    { id: "arch-5", name: "Database Layer", steps: mkSteps(), substeps: [] },
+    { id: "arch-6", name: "(Web) Services", steps: mkSteps(), substeps: [] },
+  ],
+  "Tooling": [
+    { id: "tool-1", name: "DevOps", steps: mkSteps(), substeps: [] },
+    { id: "tool-2", name: "Prototyping", steps: mkSteps(), substeps: [] },
+    { id: "tool-3", name: "FrontEnd", steps: mkSteps(), substeps: [] },
+    {
+      id: "tool-4", name: "BackEnd", steps: mkSteps(), substeps: [
+        { id: "tool-4-a", name: "Codebase", steps: mkSteps() },
+      ],
+    },
+    { id: "tool-5", name: "Testing", steps: mkSteps(), substeps: [] },
+    { id: "tool-6", name: "Deployment", steps: mkSteps(), substeps: [] },
+  ],
+});
 
+const defaultExpanded = { "arch-2": true };
+
+const loadStoredValue = (key, fallback) => {
+  if (typeof window === "undefined") return fallback;
+
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+
+    const parsed = JSON.parse(raw);
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const stepLabels = ["Vooronderzoek", "Review vooronderzoek", "Verkenning", "Onderzoek", "Review Onderzoek", "Advies schrijven ✓"];
 const epicColors = {
-  Architectuur: { accent: "#4AB8D8", dim: "#D8EEF5", glow: "rgba(74,184,216,0.2)" },
-  Tooling: { accent: "#F5A623", dim: "#FAEBD0", glow: "rgba(245,166,35,0.2)" },
+  "Architectuur": { accent: "#4AB8D8", dim: "#D8EEF5", glow: "rgba(74,184,216,0.2)" },
+  "Tooling":      { accent: "#F5A623", dim: "#FAEBD0", glow: "rgba(245,166,35,0.2)" },
 };
 
 function StepDots({ steps, onToggle, hoveredKey, onHover, hoverPrefix }) {
@@ -23,12 +67,12 @@ function StepDots({ steps, onToggle, hoveredKey, onHover, hoverPrefix }) {
     <div style={{ display: "flex", alignItems: "center", flex: 1 }}>
       {steps.map((state, si) => {
         const isBlue = state === 1;
-        const isDone = state === 2;
-        const dotBg = isDone ? "#F5A623" : isBlue ? "#4AB8D8" : "#EDF2F8";
-        const dotBorder = isDone ? "#F5A623" : isBlue ? "#4AB8D8" : "#C8D8E8";
-        const dotColor = isBlue || isDone ? "#fff" : "#9AAEC8";
-        const dotGlow = isDone ? "0 0 8px #F5A62388" : isBlue ? "0 0 8px #4AB8D888" : "none";
-        const dotLabel = isDone ? "OK" : isBlue ? "..." : si + 1;
+        const isGreen = state === 2;
+        const dotBg = isGreen ? "#F5A623" : isBlue ? "#4AB8D8" : "#EDF2F8";
+        const dotBorder = isGreen ? "#F5A623" : isBlue ? "#4AB8D8" : "#C8D8E8";
+        const dotColor = (isBlue || isGreen) ? "#fff" : "#9AAEC8";
+        const dotGlow = isGreen ? "0 0 8px #F5A62388" : isBlue ? "0 0 8px #4AB8D888" : "none";
+        const dotLabel = isGreen ? "✓" : isBlue ? "…" : si + 1;
         const hKey = `${hoverPrefix}-${si}`;
         const isHovered = hoveredKey === hKey;
 
@@ -49,7 +93,11 @@ function StepDots({ steps, onToggle, hoveredKey, onHover, hoverPrefix }) {
               <div
                 className="connector"
                 style={{
-                  background: isDone && steps[si + 1] === 2 ? "#F5A623" : isBlue && steps[si + 1] >= 1 ? "#4AB8D8" : "#D8E4F0",
+                  background: isGreen && steps[si + 1] === 2
+                    ? "#F5A623"
+                    : isBlue && steps[si + 1] >= 1
+                      ? "#4AB8D8"
+                      : "#D8E4F0",
                 }}
               />
             )}
@@ -61,136 +109,62 @@ function StepDots({ steps, onToggle, hoveredKey, onHover, hoverPrefix }) {
 }
 
 function PctBadge({ steps, accent }) {
-  const done = steps.filter((s) => s === 2).length;
+  const done = steps.filter(s => s === 2).length;
   const pct = Math.round((done / 6) * 100);
   const allDone = done === 6;
 
   return (
-    <div
-      style={{
-        width: 38,
-        textAlign: "right",
-        fontSize: 10,
-        fontFamily: "'Syne', sans-serif",
-        fontWeight: 700,
-        color: allDone ? accent : done > 0 ? "#7A9AB8" : "#C0D0E0",
-      }}
-    >
+    <div style={{ width: 38, textAlign: "right", fontSize: 10, fontFamily: "'Syne', sans-serif", fontWeight: 700, color: allDone ? accent : done > 0 ? "#7A9AB8" : "#C0D0E0" }}>
       {pct}%
     </div>
   );
 }
 
 export default function StepTracker() {
-  const [data, setData] = useState(() => createInitialData());
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [data, setData] = useState(() => loadStoredValue(STORAGE_KEY, createInitialData()));
+  const [expanded, setExpanded] = useState(() => loadStoredValue(EXPANDED_STORAGE_KEY, defaultExpanded));
   const [hoveredKey, setHoveredKey] = useState(null);
   const [modal, setModal] = useState(null);
   const [newName, setNewName] = useState("");
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [saveMessage, setSaveMessage] = useState("Bezig met tracker laden...");
 
   useEffect(() => {
-    let ignore = false;
-
-    const loadTracker = async () => {
-      try {
-        const response = await fetch(API_URL);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-
-        const stored = await response.json();
-        if (ignore) return;
-
-        setData(stored.data ?? createInitialData());
-        setExpanded(stored.expanded ?? defaultExpanded);
-        setSaveMessage("Opslag geladen uit tracker.json");
-      } catch {
-        if (ignore) return;
-
-        setData(createInitialData());
-        setExpanded(defaultExpanded);
-        setSaveMessage("tracker.json kon niet worden geladen; standaarddata actief");
-      } finally {
-        if (!ignore) {
-          setIsLoaded(true);
-        }
-      }
-    };
-
-    loadTracker();
-
-    return () => {
-      ignore = true;
-    };
-  }, []);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  }, [data]);
 
   useEffect(() => {
-    if (!isLoaded) return undefined;
-
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(async () => {
-      try {
-        setSaveMessage("Wijzigingen opslaan naar tracker.json...");
-
-        const response = await fetch(API_URL, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data, expanded }),
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-
-        setSaveMessage("Wijzigingen opgeslagen in tracker.json");
-      } catch (error) {
-        if (error?.name === "AbortError") return;
-
-        setSaveMessage("Opslaan naar tracker.json is mislukt");
-      }
-    }, 250);
-
-    return () => {
-      controller.abort();
-      window.clearTimeout(timeoutId);
-    };
-  }, [data, expanded, isLoaded]);
+    window.localStorage.setItem(EXPANDED_STORAGE_KEY, JSON.stringify(expanded));
+  }, [expanded]);
 
   const resetTracker = () => {
     if (!window.confirm("Alles resetten en opgeslagen voortgang verwijderen?")) return;
 
-    setData(createInitialData());
+    const freshData = createInitialData();
+    setData(freshData);
     setExpanded(defaultExpanded);
-    setSaveMessage("Tracker teruggezet naar standaardwaarden");
+    window.localStorage.removeItem(STORAGE_KEY);
+    window.localStorage.removeItem(EXPANDED_STORAGE_KEY);
   };
 
   const toggleFeatureStep = (epic, featureId, si) =>
-    setData((prev) => ({
+    setData(prev => ({
       ...prev,
-      [epic]: prev[epic].map((feature) =>
-        feature.id === featureId
-          ? { ...feature, steps: feature.steps.map((step, index) => (index === si ? (step + 1) % 3 : step)) }
-          : feature,
+      [epic]: prev[epic].map(f =>
+        f.id === featureId ? { ...f, steps: f.steps.map((s, i) => i === si ? (s + 1) % 3 : s) } : f,
       ),
     }));
 
   const toggleSubstep = (epic, featureId, substepId, si) =>
-    setData((prev) => ({
+    setData(prev => ({
       ...prev,
-      [epic]: prev[epic].map((feature) =>
-        feature.id === featureId
+      [epic]: prev[epic].map(f =>
+        f.id === featureId
           ? {
-              ...feature,
-              substeps: feature.substeps.map((substep) =>
-                substep.id === substepId
-                  ? { ...substep, steps: substep.steps.map((step, index) => (index === si ? (step + 1) % 3 : step)) }
-                  : substep,
+              ...f,
+              substeps: f.substeps.map(sub =>
+                sub.id === substepId ? { ...sub, steps: sub.steps.map((s, i) => i === si ? (s + 1) % 3 : s) } : sub,
               ),
             }
-          : feature,
+          : f,
       ),
     }));
 
@@ -204,35 +178,35 @@ export default function StepTracker() {
 
     if (modal.mode === "feature") {
       const id = `f-${Date.now()}`;
-      setData((prev) => ({
+      setData(prev => ({
         ...prev,
         [modal.epic]: [...prev[modal.epic], { id, name: newName.trim(), steps: mkSteps(), substeps: [] }],
       }));
     } else {
       const id = `s-${Date.now()}`;
-      setData((prev) => ({
+      setData(prev => ({
         ...prev,
-        [modal.epic]: prev[modal.epic].map((feature) =>
-          feature.id === modal.featureId
-            ? { ...feature, substeps: [...feature.substeps, { id, name: newName.trim(), steps: mkSteps() }] }
-            : feature,
+        [modal.epic]: prev[modal.epic].map(f =>
+          f.id === modal.featureId
+            ? { ...f, substeps: [...f.substeps, { id, name: newName.trim(), steps: mkSteps() }] }
+            : f,
         ),
       }));
-      setExpanded((current) => ({ ...current, [modal.featureId]: true }));
+      setExpanded(e => ({ ...e, [modal.featureId]: true }));
     }
 
     setModal(null);
   };
 
-  const allArrays = Object.values(data).flat().flatMap((feature) => [feature.steps, ...feature.substeps.map((substep) => substep.steps)]);
-  const totalSteps = allArrays.reduce((count, steps) => count + steps.length, 0);
-  const doneSteps = allArrays.reduce((count, steps) => count + steps.filter((step) => step === 2).length, 0);
+  const allArrays = Object.values(data).flat().flatMap(f => [f.steps, ...f.substeps.map(s => s.steps)]);
+  const totalSteps = allArrays.reduce((a, s) => a + s.length, 0);
+  const doneSteps = allArrays.reduce((a, s) => a + s.filter(x => x === 2).length, 0);
   const globalPct = Math.round((doneSteps / totalSteps) * 100);
 
   const epicProg = (features) => {
-    const arrays = features.flatMap((feature) => [feature.steps, ...feature.substeps.map((substep) => substep.steps)]);
-    const done = arrays.reduce((count, steps) => count + steps.filter((step) => step === 2).length, 0);
-    const total = arrays.reduce((count, steps) => count + steps.length, 0);
+    const arrs = features.flatMap(f => [f.steps, ...f.substeps.map(s => s.steps)]);
+    const done = arrs.reduce((a, s) => a + s.filter(x => x === 2).length, 0);
+    const total = arrs.reduce((a, s) => a + s.length, 0);
     return { done, total, pct: Math.round((done / total) * 100) };
   };
 
@@ -275,19 +249,16 @@ export default function StepTracker() {
 
       {modal && (
         <div className="modal-overlay" onClick={() => setModal(null)}>
-          <div className="modal-box" onClick={(event) => event.stopPropagation()}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
             <div className="modal-title">{modal.mode === "feature" ? "Nieuwe feature" : "Nieuwe substap"}</div>
-            <div className="modal-sub">
-              {modal.epic}
-              {modal.mode === "substep" ? ` -> ${data[modal.epic].find((feature) => feature.id === modal.featureId)?.name}` : ""}
-            </div>
+            <div className="modal-sub">{modal.epic}{modal.mode === "substep" ? ` → ${data[modal.epic].find(f => f.id === modal.featureId)?.name}` : ""}</div>
             <input
               className="modal-input"
               autoFocus
               placeholder={modal.mode === "feature" ? "Feature naam..." : "Substap naam..."}
               value={newName}
-              onChange={(event) => setNewName(event.target.value)}
-              onKeyDown={(event) => event.key === "Enter" && confirmAdd()}
+              onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && confirmAdd()}
             />
             <div className="modal-actions">
               <button className="btn-cancel" onClick={() => setModal(null)}>Annuleren</button>
@@ -301,17 +272,9 @@ export default function StepTracker() {
         <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 8, flexWrap: "wrap" }}>
           <h1 style={{ fontFamily: "'Syne',sans-serif", fontSize: 28, fontWeight: 800, color: "#1B2F5E", margin: 0, letterSpacing: "-0.5px" }}>Project Nautica</h1>
           <div style={{ flex: 1 }} />
-          <span className="header-note">{saveMessage} | bestand: data/tracker.json</span>
+          <span className="header-note">autosave aan · alleen op deze browser</span>
           <button className="header-action" onClick={resetTracker}>reset opslag</button>
         </div>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
-        <div style={{ flex: 1, minWidth: 220, height: 10, background: "#E2EBF4", borderRadius: 999, overflow: "hidden" }}>
-          <div style={{ width: `${globalPct}%`, height: "100%", background: "linear-gradient(90deg, #4AB8D8, #F5A623)", borderRadius: 999, transition: "width 0.25s ease" }} />
-        </div>
-        <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 13, fontWeight: 700 }}>{globalPct}%</span>
-        <span style={{ fontSize: 11, color: "#7A9AB8" }}>{doneSteps}/{totalSteps} stappen afgerond</span>
       </div>
 
       <div style={{ display: "flex", gap: 6, marginBottom: 32, flexWrap: "wrap", alignItems: "center" }}>
@@ -333,7 +296,7 @@ export default function StepTracker() {
               <div style={{ width: 10, height: 10, borderRadius: "50%", background: color.accent, boxShadow: `0 0 10px ${color.glow}` }} />
               <h2 style={{ fontFamily: "'Syne',sans-serif", fontSize: 15, fontWeight: 700, color: color.accent, margin: 0, letterSpacing: "0.08em", textTransform: "uppercase" }}>Epic: {epic}</h2>
               <div style={{ flex: 1 }} />
-              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: color.accent, opacity: 0.7 }}>{epDone}/{epTotal} | {epPct}%</span>
+              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: color.accent, opacity: 0.7 }}>{epDone}/{epTotal} · {epPct}%</span>
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 8, borderBottom: `1px solid ${color.dim}`, marginBottom: 4 }}>
@@ -347,9 +310,9 @@ export default function StepTracker() {
             </div>
 
             {features.map((feature) => {
-              const isExpanded = Boolean(expanded[feature.id]);
+              const isExpanded = !!expanded[feature.id];
               const hasSubsteps = feature.substeps.length > 0;
-              const allDone = feature.steps.every((step) => step === 2);
+              const allDone = feature.steps.every(s => s === 2);
 
               return (
                 <div key={feature.id}>
@@ -357,35 +320,32 @@ export default function StepTracker() {
                     <button
                       className="expand-btn"
                       style={{ transform: isExpanded ? "rotate(90deg)" : "none", opacity: hasSubsteps ? 1 : 0.3 }}
-                      onClick={() => hasSubsteps && setExpanded((current) => ({ ...current, [feature.id]: !current[feature.id] }))}
-                    >
-                      {">"}
-                    </button>
+                      onClick={() => hasSubsteps && setExpanded(e => ({ ...e, [feature.id]: !e[feature.id] }))}
+                    >▶</button>
 
                     <div style={{ width: 148, fontSize: 11, fontWeight: 500, color: allDone ? color.accent : "#1B2F5E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {feature.name}
-                      {hasSubsteps && <span style={{ marginLeft: 5, fontSize: 9, color: "#9AAEC8", fontWeight: 400 }}>|{feature.substeps.length}</span>}
+                      {hasSubsteps && <span style={{ marginLeft: 5, fontSize: 9, color: "#9AAEC8", fontWeight: 400 }}>·{feature.substeps.length}</span>}
                     </div>
 
-                    <StepDots steps={feature.steps} onToggle={(si) => toggleFeatureStep(epic, feature.id, si)} hoveredKey={hoveredKey} onHover={setHoveredKey} hoverPrefix={feature.id} />
+                    <StepDots steps={feature.steps} onToggle={si => toggleFeatureStep(epic, feature.id, si)} hoveredKey={hoveredKey} onHover={setHoveredKey} hoverPrefix={feature.id} />
                     <PctBadge steps={feature.steps} accent={color.accent} />
 
                     <button className="sub-add-btn" onClick={() => openModal(epic, "substep", feature.id)} title="Substap toevoegen">+</button>
                   </div>
 
                   {isExpanded && feature.substeps.map((sub, idx) => {
-                    const subAllDone = sub.steps.every((step) => step === 2);
+                    const subAllDone = sub.steps.every(s => s === 2);
                     const isLast = idx === feature.substeps.length - 1;
-
                     return (
                       <div key={sub.id} className="substep-row" style={{ borderBottom: isLast ? "none" : undefined }}>
                         <div style={{ width: 18, display: "flex", alignItems: "center", justifyContent: "flex-end", flexShrink: 0 }}>
-                          <span style={{ fontSize: 12, color: "#C8D8E8", lineHeight: 1 }}>{isLast ? "L" : "|"}</span>
+                          <span style={{ fontSize: 12, color: "#C8D8E8", lineHeight: 1 }}>{isLast ? "└" : "├"}</span>
                         </div>
                         <div style={{ width: 148, fontSize: 10, color: subAllDone ? color.accent : "#5A7A9A", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {sub.name}
                         </div>
-                        <StepDots steps={sub.steps} onToggle={(si) => toggleSubstep(epic, feature.id, sub.id, si)} hoveredKey={hoveredKey} onHover={setHoveredKey} hoverPrefix={sub.id} />
+                        <StepDots steps={sub.steps} onToggle={si => toggleSubstep(epic, feature.id, sub.id, si)} hoveredKey={hoveredKey} onHover={setHoveredKey} hoverPrefix={sub.id} />
                         <PctBadge steps={sub.steps} accent={color.accent} />
                         <div style={{ width: 30 }} />
                       </div>
@@ -403,10 +363,10 @@ export default function StepTracker() {
       })}
 
       <div style={{ textAlign: "center", fontSize: 10, color: "#B0C4D8", marginTop: 12, letterSpacing: "0.08em" }}>
-        KLIK 1x = BLAUW | 2x = ORANJE (done) | 3x = RESET | {">"} SUBSTAPPEN | + TOEVOEGEN
+        KLIK 1× = BLAUW · 2× = ORANJE (done) · 3× = RESET · ▶ SUBSTAPPEN · + TOEVOEGEN
       </div>
       <div style={{ textAlign: "center", fontSize: 10, color: "#B0C4D8", marginTop: 8 }}>
-        VOORTGANG WORDT AUTOMATISCH OPGESLAGEN IN data/tracker.json
+        VOORTGANG WORDT AUTOMATISCH OPGESLAGEN IN JE BROWSER
       </div>
     </div>
   );
