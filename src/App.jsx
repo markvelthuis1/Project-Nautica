@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const STORAGE_KEY = "project-nautica-tracker-v1";
 const EXPANDED_STORAGE_KEY = "project-nautica-expanded-v1";
+const STEP_STATE_LABELS = ["not_started", "in_progress", "done"];
 
 // steps: 0 = default, 1 = blue (in progress), 2 = orange (done)
 const mkSteps = () => [0, 0, 0, 0, 0, 0];
@@ -60,6 +61,113 @@ const stepLabels = ["Vooronderzoek", "Review vooronderzoek", "Verkenning", "Onde
 const epicColors = {
   "Architectuur": { accent: "#4AB8D8", dim: "#D8EEF5", glow: "rgba(74,184,216,0.2)" },
   "Tooling":      { accent: "#F5A623", dim: "#FAEBD0", glow: "rgba(245,166,35,0.2)" },
+};
+
+const mapStepsForJson = (steps) =>
+  steps.map((state, index) => ({
+    index: index + 1,
+    label: stepLabels[index],
+    stateCode: state,
+    state: STEP_STATE_LABELS[state] ?? STEP_STATE_LABELS[0],
+  }));
+
+const createExportPayload = (data) => ({
+  project: "Project Nautica",
+  exportedAt: new Date().toISOString(),
+  epics: Object.entries(data).map(([epicName, features]) => ({
+    name: epicName,
+    features: features.map((feature) => ({
+      id: feature.id,
+      name: feature.name,
+      steps: mapStepsForJson(feature.steps),
+      substeps: feature.substeps.map((substep) => ({
+        id: substep.id,
+        name: substep.name,
+        steps: mapStepsForJson(substep.steps),
+      })),
+    })),
+  })),
+});
+
+const normalizeImportedSteps = (steps) => {
+  if (!Array.isArray(steps) || steps.length !== stepLabels.length) {
+    throw new Error("Elke feature en substap moet 6 stappen hebben.");
+  }
+
+  return steps.map((step) => {
+    if (typeof step === "number") {
+      if (!Number.isInteger(step) || step < 0 || step > 2) {
+        throw new Error("Ongeldige step state gevonden.");
+      }
+
+      return step;
+    }
+
+    if (step && typeof step === "object") {
+      if (typeof step.stateCode === "number") {
+        if (!Number.isInteger(step.stateCode) || step.stateCode < 0 || step.stateCode > 2) {
+          throw new Error("Ongeldige stateCode gevonden.");
+        }
+
+        return step.stateCode;
+      }
+
+      if (typeof step.state === "string") {
+        const stateIndex = STEP_STATE_LABELS.indexOf(step.state);
+        if (stateIndex !== -1) return stateIndex;
+      }
+    }
+
+    throw new Error("Het JSON-bestand bevat een onbekend step formaat.");
+  });
+};
+
+const importTrackerData = (payload) => {
+  if (!payload || typeof payload !== "object" || !Array.isArray(payload.epics)) {
+    throw new Error("Het JSON-bestand mist de epics lijst.");
+  }
+
+  const importedData = {};
+  const importedExpanded = {};
+
+  payload.epics.forEach((epic) => {
+    if (!epic || typeof epic.name !== "string" || !Array.isArray(epic.features)) {
+      throw new Error("Een epic in het JSON-bestand is ongeldig.");
+    }
+
+    importedData[epic.name] = epic.features.map((feature) => {
+      if (!feature || typeof feature.id !== "string" || typeof feature.name !== "string") {
+        throw new Error("Een feature in het JSON-bestand is ongeldig.");
+      }
+
+      const substeps = Array.isArray(feature.substeps)
+        ? feature.substeps.map((substep) => {
+            if (!substep || typeof substep.id !== "string" || typeof substep.name !== "string") {
+              throw new Error("Een substap in het JSON-bestand is ongeldig.");
+            }
+
+            return {
+              id: substep.id,
+              name: substep.name,
+              steps: normalizeImportedSteps(substep.steps),
+            };
+          })
+        : [];
+
+      if (substeps.length > 0) {
+        importedExpanded[feature.id] = true;
+      }
+
+      return {
+        id: feature.id,
+        name: feature.name,
+        steps: normalizeImportedSteps(feature.steps),
+        substeps,
+      };
+    });
+  });
+
+  return { data: importedData, expanded: importedExpanded };
 };
 
 function StepDots({ steps, onToggle, hoveredKey, onHover, hoverPrefix }) {
@@ -126,6 +234,8 @@ export default function StepTracker() {
   const [hoveredKey, setHoveredKey] = useState(null);
   const [modal, setModal] = useState(null);
   const [newName, setNewName] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
+  const importInputRef = useRef(null);
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -141,8 +251,50 @@ export default function StepTracker() {
     const freshData = createInitialData();
     setData(freshData);
     setExpanded(defaultExpanded);
+    setStatusMessage("");
     window.localStorage.removeItem(STORAGE_KEY);
     window.localStorage.removeItem(EXPANDED_STORAGE_KEY);
+  };
+
+  const exportToJson = () => {
+    const payload = createExportPayload(data);
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+
+    anchor.href = url;
+    anchor.download = `project-nautica-${timestamp}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    window.URL.revokeObjectURL(url);
+
+    setStatusMessage(`JSON exported on ${new Date().toLocaleString("nl-NL")}`);
+  };
+
+  const triggerImport = () => {
+    importInputRef.current?.click();
+  };
+
+  const handleImport = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const raw = await file.text();
+      const parsed = JSON.parse(raw);
+      const imported = importTrackerData(parsed);
+
+      setData(imported.data);
+      setExpanded(imported.expanded);
+      setStatusMessage(`JSON imported from ${file.name}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown import error.";
+      setStatusMessage(`Import failed: ${message}`);
+    } finally {
+      event.target.value = "";
+    }
   };
 
   const toggleFeatureStep = (epic, featureId, si) =>
@@ -273,8 +425,18 @@ export default function StepTracker() {
           <h1 style={{ fontFamily: "'Syne',sans-serif", fontSize: 28, fontWeight: 800, color: "#1B2F5E", margin: 0, letterSpacing: "-0.5px" }}>Project Nautica</h1>
           <div style={{ flex: 1 }} />
           <span className="header-note">autosave aan · alleen op deze browser</span>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            style={{ display: "none" }}
+            onChange={handleImport}
+          />
+          <button className="header-action" onClick={triggerImport}>import json</button>
+          <button className="header-action" onClick={exportToJson}>export json</button>
           <button className="header-action" onClick={resetTracker}>reset opslag</button>
         </div>
+        {statusMessage && <div className="header-note" style={{ color: "#5A7A9A" }}>{statusMessage}</div>}
       </div>
 
       <div style={{ display: "flex", gap: 6, marginBottom: 32, flexWrap: "wrap", alignItems: "center" }}>
