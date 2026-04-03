@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 
 const STORAGE_KEY = "project-nautica-tracker-v1";
 const EXPANDED_STORAGE_KEY = "project-nautica-expanded-v1";
+const SELECTED_FEATURE_STORAGE_KEY = "project-nautica-selected-feature-v1";
+const SELECTED_SUBSTEP_STORAGE_KEY = "project-nautica-selected-substep-v1";
 const STEP_STATE_LABELS = ["not_started", "in_progress", "done"];
 
 // steps: 0 = default, 1 = blue (in progress), 2 = orange (done)
@@ -243,6 +245,8 @@ function PctBadge({ steps, accent }) {
 export default function StepTracker() {
   const [data, setData] = useState(() => loadStoredValue(STORAGE_KEY, createInitialData()));
   const [expanded, setExpanded] = useState(() => loadStoredValue(EXPANDED_STORAGE_KEY, defaultExpanded));
+  const [selectedFeatureId, setSelectedFeatureId] = useState(() => loadStoredValue(SELECTED_FEATURE_STORAGE_KEY, null));
+  const [selectedSubstepId, setSelectedSubstepId] = useState(() => loadStoredValue(SELECTED_SUBSTEP_STORAGE_KEY, null));
   const [hoveredKey, setHoveredKey] = useState(null);
   const [modal, setModal] = useState(null);
   const [newName, setNewName] = useState("");
@@ -257,15 +261,27 @@ export default function StepTracker() {
     window.localStorage.setItem(EXPANDED_STORAGE_KEY, JSON.stringify(expanded));
   }, [expanded]);
 
+  useEffect(() => {
+    window.localStorage.setItem(SELECTED_FEATURE_STORAGE_KEY, JSON.stringify(selectedFeatureId));
+  }, [selectedFeatureId]);
+
+  useEffect(() => {
+    window.localStorage.setItem(SELECTED_SUBSTEP_STORAGE_KEY, JSON.stringify(selectedSubstepId));
+  }, [selectedSubstepId]);
+
   const resetTracker = () => {
     if (!window.confirm("Alles resetten en opgeslagen voortgang verwijderen?")) return;
 
     const freshData = createInitialData();
     setData(freshData);
     setExpanded(defaultExpanded);
+    setSelectedFeatureId(null);
+    setSelectedSubstepId(null);
     setStatusMessage("");
     window.localStorage.removeItem(STORAGE_KEY);
     window.localStorage.removeItem(EXPANDED_STORAGE_KEY);
+    window.localStorage.removeItem(SELECTED_FEATURE_STORAGE_KEY);
+    window.localStorage.removeItem(SELECTED_SUBSTEP_STORAGE_KEY);
   };
 
   const exportToJson = () => {
@@ -300,6 +316,8 @@ export default function StepTracker() {
 
       setData(imported.data);
       setExpanded(imported.expanded);
+      setSelectedFeatureId(null);
+      setSelectedSubstepId(null);
       setStatusMessage(`JSON imported from ${file.name}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown import error.";
@@ -337,6 +355,14 @@ export default function StepTracker() {
     setNewName("");
   };
 
+  const toggleFeatureHighlight = (featureId) => {
+    setSelectedFeatureId((prev) => (prev === featureId ? null : featureId));
+  };
+
+  const toggleSubstepHighlight = (substepId) => {
+    setSelectedSubstepId((prev) => (prev === substepId ? null : substepId));
+  };
+
   const removeEpic = (epicName) => {
     const featuresInEpic = data[epicName] ?? [];
     const confirmMessage = featuresInEpic.length > 0
@@ -360,6 +386,14 @@ export default function StepTracker() {
 
       return next;
     });
+
+    if (featuresInEpic.some((feature) => feature.id === selectedFeatureId)) {
+      setSelectedFeatureId(null);
+    }
+
+    if (featuresInEpic.some((feature) => feature.substeps.some((substep) => substep.id === selectedSubstepId))) {
+      setSelectedSubstepId(null);
+    }
 
     setStatusMessage(`Epic "${epicName}" verwijderd.`);
   };
@@ -429,9 +463,9 @@ export default function StepTracker() {
         .step-dot:hover { transform: scale(1.18); }
         .connector { height: 2px; flex: 1; max-width: 10px; min-width: 4px; border-radius: 2px; transition: background 0.2s; }
         .epic-card { background: #fff; border: 1px solid #D8E4F0; border-radius: 16px; padding: 28px; margin-bottom: 28px; box-shadow: 0 2px 12px rgba(27,47,94,0.07); }
-        .feature-row { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid #EDF2F8; }
+        .feature-row { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid #EDF2F8; border-radius: 10px; transition: background 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease; }
         .feature-row:last-of-type { border-bottom: none; }
-        .substep-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px 7px 16px; border-bottom: 1px dashed #EDF2F8; background: #FAFCFF; }
+        .substep-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px 7px 16px; border-bottom: 1px dashed #EDF2F8; background: #FAFCFF; border-radius: 10px; transition: background 0.15s ease, box-shadow 0.15s ease; }
         .tooltip { position: absolute; bottom: 34px; left: 50%; transform: translateX(-50%); background: #1B2F5E; border: 1px solid #2A4A6A; color: #fff; font-size: 9px; padding: 3px 7px; border-radius: 5px; white-space: nowrap; pointer-events: none; z-index: 10; }
         .add-btn { background: none; border: 1px dashed #C8D8E8; border-radius: 8px; color: #9AAEC8; font-size: 10px; font-family: 'DM Mono',monospace; cursor: pointer; padding: 5px 12px; transition: all 0.15s; }
         .add-btn:hover { border-color: #4AB8D8; color: #4AB8D8; background: #F0FAFD; }
@@ -535,10 +569,17 @@ export default function StepTracker() {
               const isExpanded = !!expanded[feature.id];
               const hasSubsteps = feature.substeps.length > 0;
               const allDone = feature.steps.every(s => s === 2);
+              const isSelected = selectedFeatureId === feature.id;
 
               return (
                 <div key={feature.id}>
-                  <div className="feature-row">
+                  <div
+                    className="feature-row"
+                    style={{
+                      background: isSelected ? `${color.dim}` : undefined,
+                      boxShadow: isSelected ? `inset 0 0 0 1.5px ${color.accent}` : undefined,
+                    }}
+                  >
                     <button
                       className="expand-btn"
                       style={{ transform: isExpanded ? "rotate(90deg)" : "none", opacity: hasSubsteps ? 1 : 0.3 }}
@@ -553,14 +594,31 @@ export default function StepTracker() {
                     <StepDots steps={feature.steps} onToggle={si => toggleFeatureStep(epic, feature.id, si)} hoveredKey={hoveredKey} onHover={setHoveredKey} hoverPrefix={feature.id} />
                     <PctBadge steps={feature.steps} accent={color.accent} />
 
+                    <button
+                      className="sub-add-btn"
+                      onClick={() => toggleFeatureHighlight(feature.id)}
+                      title={isSelected ? "Highlight verwijderen" : "Feature highlighten"}
+                      style={{ color: isSelected ? color.accent : undefined }}
+                    >
+                      {isSelected ? "★" : "☆"}
+                    </button>
                     <button className="sub-add-btn" onClick={() => openModal(epic, "substep", feature.id)} title="Substap toevoegen">+</button>
                   </div>
 
                   {isExpanded && feature.substeps.map((sub, idx) => {
                     const subAllDone = sub.steps.every(s => s === 2);
                     const isLast = idx === feature.substeps.length - 1;
+                    const isSubstepSelected = selectedSubstepId === sub.id;
                     return (
-                      <div key={sub.id} className="substep-row" style={{ borderBottom: isLast ? "none" : undefined }}>
+                      <div
+                        key={sub.id}
+                        className="substep-row"
+                        style={{
+                          borderBottom: isLast ? "none" : undefined,
+                          background: isSubstepSelected ? color.dim : undefined,
+                          boxShadow: isSubstepSelected ? `inset 0 0 0 1.5px ${color.accent}` : undefined,
+                        }}
+                      >
                         <div style={{ width: 18, display: "flex", alignItems: "center", justifyContent: "flex-end", flexShrink: 0 }}>
                           <span style={{ fontSize: 12, color: "#C8D8E8", lineHeight: 1 }}>{isLast ? "└" : "├"}</span>
                         </div>
@@ -569,7 +627,14 @@ export default function StepTracker() {
                         </div>
                         <StepDots steps={sub.steps} onToggle={si => toggleSubstep(epic, feature.id, sub.id, si)} hoveredKey={hoveredKey} onHover={setHoveredKey} hoverPrefix={sub.id} />
                         <PctBadge steps={sub.steps} accent={color.accent} />
-                        <div style={{ width: 30 }} />
+                        <button
+                          className="sub-add-btn"
+                          onClick={() => toggleSubstepHighlight(sub.id)}
+                          title={isSubstepSelected ? "Highlight verwijderen" : "Substap highlighten"}
+                          style={{ color: isSubstepSelected ? color.accent : undefined }}
+                        >
+                          {isSubstepSelected ? "★" : "☆"}
+                        </button>
                       </div>
                     );
                   })}
