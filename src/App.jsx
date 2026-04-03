@@ -62,6 +62,18 @@ const epicColors = {
   "Architectuur": { accent: "#4AB8D8", dim: "#D8EEF5", glow: "rgba(74,184,216,0.2)" },
   "Tooling":      { accent: "#F5A623", dim: "#FAEBD0", glow: "rgba(245,166,35,0.2)" },
 };
+const fallbackEpicColors = [
+  { accent: "#D95F5F", dim: "#F8DEDE", glow: "rgba(217,95,95,0.2)" },
+  { accent: "#4E9F6D", dim: "#DCEFE2", glow: "rgba(78,159,109,0.2)" },
+  { accent: "#7A6FF0", dim: "#E6E2FF", glow: "rgba(122,111,240,0.2)" },
+  { accent: "#D9783F", dim: "#F8E3D8", glow: "rgba(217,120,63,0.2)" },
+  { accent: "#3F8FD9", dim: "#DCEBFA", glow: "rgba(63,143,217,0.2)" },
+];
+
+const getEpicColor = (epicName, epicIndex) => {
+  if (epicColors[epicName]) return epicColors[epicName];
+  return fallbackEpicColors[epicIndex % fallbackEpicColors.length];
+};
 
 const mapStepsForJson = (steps) =>
   steps.map((state, index) => ({
@@ -325,14 +337,61 @@ export default function StepTracker() {
     setNewName("");
   };
 
+  const removeEpic = (epicName) => {
+    const featuresInEpic = data[epicName] ?? [];
+    const confirmMessage = featuresInEpic.length > 0
+      ? `Epic "${epicName}" verwijderen? Alle ${featuresInEpic.length} feature(s) en onderliggende substappen worden ook verwijderd.`
+      : `Lege epic "${epicName}" verwijderen?`;
+
+    if (!window.confirm(confirmMessage)) return;
+
+    setData((prev) => {
+      const next = { ...prev };
+      delete next[epicName];
+      return next;
+    });
+
+    setExpanded((prev) => {
+      const next = { ...prev };
+
+      featuresInEpic.forEach((feature) => {
+        delete next[feature.id];
+      });
+
+      return next;
+    });
+
+    setStatusMessage(`Epic "${epicName}" verwijderd.`);
+  };
+
   const confirmAdd = () => {
-    if (!newName.trim()) return;
+    const trimmedName = newName.trim();
+    if (!trimmedName) return;
+
+    if (modal.mode === "epic") {
+      const existingEpic = Object.keys(data).find(
+        (epicName) => epicName.toLowerCase() === trimmedName.toLowerCase(),
+      );
+
+      if (existingEpic) {
+        setStatusMessage(`Epic "${trimmedName}" bestaat al.`);
+        return;
+      }
+
+      setData((prev) => ({
+        ...prev,
+        [trimmedName]: [],
+      }));
+      setStatusMessage(`Epic "${trimmedName}" toegevoegd.`);
+      setModal(null);
+      return;
+    }
 
     if (modal.mode === "feature") {
       const id = `f-${Date.now()}`;
       setData(prev => ({
         ...prev,
-        [modal.epic]: [...prev[modal.epic], { id, name: newName.trim(), steps: mkSteps(), substeps: [] }],
+        [modal.epic]: [...prev[modal.epic], { id, name: trimmedName, steps: mkSteps(), substeps: [] }],
       }));
     } else {
       const id = `s-${Date.now()}`;
@@ -340,7 +399,7 @@ export default function StepTracker() {
         ...prev,
         [modal.epic]: prev[modal.epic].map(f =>
           f.id === modal.featureId
-            ? { ...f, substeps: [...f.substeps, { id, name: newName.trim(), steps: mkSteps() }] }
+            ? { ...f, substeps: [...f.substeps, { id, name: trimmedName, steps: mkSteps() }] }
             : f,
         ),
       }));
@@ -350,16 +409,11 @@ export default function StepTracker() {
     setModal(null);
   };
 
-  const allArrays = Object.values(data).flat().flatMap(f => [f.steps, ...f.substeps.map(s => s.steps)]);
-  const totalSteps = allArrays.reduce((a, s) => a + s.length, 0);
-  const doneSteps = allArrays.reduce((a, s) => a + s.filter(x => x === 2).length, 0);
-  const globalPct = Math.round((doneSteps / totalSteps) * 100);
-
   const epicProg = (features) => {
     const arrs = features.flatMap(f => [f.steps, ...f.substeps.map(s => s.steps)]);
     const done = arrs.reduce((a, s) => a + s.filter(x => x === 2).length, 0);
     const total = arrs.reduce((a, s) => a + s.length, 0);
-    return { done, total, pct: Math.round((done / total) * 100) };
+    return { done, total, pct: total === 0 ? 0 : Math.round((done / total) * 100) };
   };
 
   return (
@@ -402,12 +456,16 @@ export default function StepTracker() {
       {modal && (
         <div className="modal-overlay" onClick={() => setModal(null)}>
           <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <div className="modal-title">{modal.mode === "feature" ? "Nieuwe feature" : "Nieuwe substap"}</div>
-            <div className="modal-sub">{modal.epic}{modal.mode === "substep" ? ` → ${data[modal.epic].find(f => f.id === modal.featureId)?.name}` : ""}</div>
+            <div className="modal-title">{modal.mode === "epic" ? "Nieuwe epic" : modal.mode === "feature" ? "Nieuwe feature" : "Nieuwe substap"}</div>
+            <div className="modal-sub">
+              {modal.mode === "epic"
+                ? "Maak een nieuwe epic aan"
+                : `${modal.epic}${modal.mode === "substep" ? ` → ${data[modal.epic].find(f => f.id === modal.featureId)?.name}` : ""}`}
+            </div>
             <input
               className="modal-input"
               autoFocus
-              placeholder={modal.mode === "feature" ? "Feature naam..." : "Substap naam..."}
+              placeholder={modal.mode === "epic" ? "Epic naam..." : modal.mode === "feature" ? "Feature naam..." : "Substap naam..."}
               value={newName}
               onChange={e => setNewName(e.target.value)}
               onKeyDown={e => e.key === "Enter" && confirmAdd()}
@@ -434,6 +492,7 @@ export default function StepTracker() {
           />
           <button className="header-action" onClick={triggerImport}>import json</button>
           <button className="header-action" onClick={exportToJson}>export json</button>
+          <button className="header-action" onClick={() => openModal(null, "epic")}>+ epic toevoegen</button>
           <button className="header-action" onClick={resetTracker}>reset opslag</button>
         </div>
         {statusMessage && <div className="header-note" style={{ color: "#5A7A9A" }}>{statusMessage}</div>}
@@ -448,8 +507,8 @@ export default function StepTracker() {
         ))}
       </div>
 
-      {Object.entries(data).map(([epic, features]) => {
-        const color = epicColors[epic];
+      {Object.entries(data).map(([epic, features], epicIndex) => {
+        const color = getEpicColor(epic, epicIndex);
         const { done: epDone, total: epTotal, pct: epPct } = epicProg(features);
 
         return (
@@ -459,6 +518,7 @@ export default function StepTracker() {
               <h2 style={{ fontFamily: "'Syne',sans-serif", fontSize: 15, fontWeight: 700, color: color.accent, margin: 0, letterSpacing: "0.08em", textTransform: "uppercase" }}>Epic: {epic}</h2>
               <div style={{ flex: 1 }} />
               <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: color.accent, opacity: 0.7 }}>{epDone}/{epTotal} · {epPct}%</span>
+              <button className="header-action" onClick={() => removeEpic(epic)}>verwijder epic</button>
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 8, borderBottom: `1px solid ${color.dim}`, marginBottom: 4 }}>
@@ -516,6 +576,12 @@ export default function StepTracker() {
                 </div>
               );
             })}
+
+            {features.length === 0 && (
+              <div style={{ padding: "12px 4px 2px", fontSize: 10, color: "#9AAEC8" }}>
+                Nog geen features toegevoegd aan deze epic.
+              </div>
+            )}
 
             <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px dashed ${color.dim}` }}>
               <button className="add-btn" onClick={() => openModal(epic, "feature")}>+ feature toevoegen</button>
