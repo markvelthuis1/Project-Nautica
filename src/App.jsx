@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import html2canvas from "html2canvas";
 
 const STORAGE_KEY = "project-nautica-tracker-v1";
 const EXPANDED_STORAGE_KEY = "project-nautica-expanded-v1";
@@ -76,6 +77,14 @@ const getEpicColor = (epicName, epicIndex) => {
   if (epicColors[epicName]) return epicColors[epicName];
   return fallbackEpicColors[epicIndex % fallbackEpicColors.length];
 };
+
+const toFileSafeName = (value) =>
+  value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "epic";
 
 const mapStepsForJson = (steps) =>
   steps.map((state, index) => ({
@@ -252,6 +261,7 @@ export default function StepTracker() {
   const [newName, setNewName] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const importInputRef = useRef(null);
+  const epicCardRefs = useRef({});
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -361,6 +371,38 @@ export default function StepTracker() {
 
   const toggleSubstepHighlight = (substepId) => {
     setSelectedSubstepId((prev) => (prev === substepId ? null : substepId));
+  };
+
+  const exportEpicToJpg = async (epicName) => {
+    const epicNode = epicCardRefs.current[epicName];
+    if (!epicNode) {
+      setStatusMessage(`Export failed: epic "${epicName}" niet gevonden.`);
+      return;
+    }
+
+    try {
+      const canvas = await html2canvas(epicNode, {
+        backgroundColor: "#F5F7FA",
+        scale: 2,
+        useCORS: true,
+        ignoreElements: (element) => element.dataset?.exportIgnore === "true",
+      });
+
+      const imageUrl = canvas.toDataURL("image/jpeg", 0.95);
+      const anchor = document.createElement("a");
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+
+      anchor.href = imageUrl;
+      anchor.download = `project-nautica-${toFileSafeName(epicName)}-${timestamp}.jpg`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+
+      setStatusMessage(`JPG exported for epic "${epicName}" on ${new Date().toLocaleString("nl-NL")}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown export error.";
+      setStatusMessage(`JPG export failed: ${message}`);
+    }
   };
 
   const removeEpic = (epicName) => {
@@ -546,13 +588,25 @@ export default function StepTracker() {
         const { done: epDone, total: epTotal, pct: epPct } = epicProg(features);
 
         return (
-          <div key={epic} className="epic-card" style={{ borderColor: `${color.accent}33` }}>
+          <div
+            key={epic}
+            className="epic-card"
+            ref={(node) => {
+              if (node) {
+                epicCardRefs.current[epic] = node;
+              } else {
+                delete epicCardRefs.current[epic];
+              }
+            }}
+            style={{ borderColor: `${color.accent}33` }}
+          >
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
               <div style={{ width: 10, height: 10, borderRadius: "50%", background: color.accent, boxShadow: `0 0 10px ${color.glow}` }} />
               <h2 style={{ fontFamily: "'Syne',sans-serif", fontSize: 15, fontWeight: 700, color: color.accent, margin: 0, letterSpacing: "0.08em", textTransform: "uppercase" }}>Epic: {epic}</h2>
               <div style={{ flex: 1 }} />
               <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: color.accent, opacity: 0.7 }}>{epDone}/{epTotal} · {epPct}%</span>
-              <button className="header-action" onClick={() => removeEpic(epic)}>verwijder epic</button>
+              <button className="header-action" onClick={() => exportEpicToJpg(epic)} data-export-ignore="true">download jpg</button>
+              <button className="header-action" onClick={() => removeEpic(epic)} data-export-ignore="true">verwijder epic</button>
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 8, borderBottom: `1px solid ${color.dim}`, marginBottom: 4 }}>
@@ -599,10 +653,11 @@ export default function StepTracker() {
                       onClick={() => toggleFeatureHighlight(feature.id)}
                       title={isSelected ? "Highlight verwijderen" : "Feature highlighten"}
                       style={{ color: isSelected ? color.accent : undefined }}
+                      data-export-ignore="true"
                     >
                       {isSelected ? "★" : "☆"}
                     </button>
-                    <button className="sub-add-btn" onClick={() => openModal(epic, "substep", feature.id)} title="Substap toevoegen">+</button>
+                    <button className="sub-add-btn" onClick={() => openModal(epic, "substep", feature.id)} title="Substap toevoegen" data-export-ignore="true">+</button>
                   </div>
 
                   {isExpanded && feature.substeps.map((sub, idx) => {
@@ -632,6 +687,7 @@ export default function StepTracker() {
                           onClick={() => toggleSubstepHighlight(sub.id)}
                           title={isSubstepSelected ? "Highlight verwijderen" : "Substap highlighten"}
                           style={{ color: isSubstepSelected ? color.accent : undefined }}
+                          data-export-ignore="true"
                         >
                           {isSubstepSelected ? "★" : "☆"}
                         </button>
@@ -649,7 +705,7 @@ export default function StepTracker() {
             )}
 
             <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px dashed ${color.dim}` }}>
-              <button className="add-btn" onClick={() => openModal(epic, "feature")}>+ feature toevoegen</button>
+              <button className="add-btn" onClick={() => openModal(epic, "feature")} data-export-ignore="true">+ feature toevoegen</button>
             </div>
           </div>
         );
