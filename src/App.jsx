@@ -456,6 +456,42 @@ export default function StepTracker() {
     setStatusMessage(`Epic "${epicName}" verwijderd.`);
   };
 
+  const removeFeature = (epicName, featureId) => {
+    const featureToRemove = (data[epicName] ?? []).find((feature) => feature.id === featureId);
+    if (!featureToRemove) {
+      setStatusMessage(`Feature niet gevonden in epic "${epicName}".`);
+      return;
+    }
+
+    const substepCount = featureToRemove.substeps.length;
+    const confirmMessage = substepCount > 0
+      ? `Feature "${featureToRemove.name}" verwijderen uit epic "${epicName}"? Alle ${substepCount} onderliggende substap(pen) worden ook verwijderd.`
+      : `Feature "${featureToRemove.name}" verwijderen uit epic "${epicName}"?`;
+
+    if (!window.confirm(confirmMessage)) return;
+
+    setData((prev) => ({
+      ...prev,
+      [epicName]: prev[epicName].filter((feature) => feature.id !== featureId),
+    }));
+
+    setExpanded((prev) => {
+      const next = { ...prev };
+      delete next[featureId];
+      return next;
+    });
+
+    if (selectedFeatureId === featureId) {
+      setSelectedFeatureId(null);
+    }
+
+    if (featureToRemove.substeps.some((substep) => substep.id === selectedSubstepId)) {
+      setSelectedSubstepId(null);
+    }
+
+    setStatusMessage(`Feature "${featureToRemove.name}" verwijderd uit epic "${epicName}".`);
+  };
+
   const confirmAdd = () => {
     const trimmedName = newName.trim();
     if (!trimmedName) return;
@@ -672,6 +708,14 @@ export default function StepTracker() {
                       data-export-ignore="true"
                     >
                       {isSelected ? "★" : "☆"}
+                    </button>
+                    <button
+                      className="sub-add-btn"
+                      onClick={() => removeFeature(epic, feature.id)}
+                      title="Feature verwijderen"
+                      data-export-ignore="true"
+                    >
+                      ×
                     </button>
                     <button className="sub-add-btn" onClick={() => openModal(epic, "substep", feature.id)} title="Substap toevoegen" data-export-ignore="true">+</button>
                   </div>
