@@ -366,12 +366,28 @@ export default function StepTracker() {
   };
 
   const toggleFeatureHighlight = (featureId) => {
-    setSelectedFeatureId((prev) => (prev === featureId ? null : featureId));
+    setSelectedFeatureId((prev) => {
+      const nextFeatureId = prev === featureId ? null : featureId;
+
+      if (nextFeatureId) {
+        setExpanded((current) => ({ ...current, [featureId]: true }));
+      }
+
+      return nextFeatureId;
+    });
+    setSelectedSubstepId(null);
   };
 
   const toggleSubstepHighlight = (substepId) => {
+    setSelectedFeatureId(null);
     setSelectedSubstepId((prev) => (prev === substepId ? null : substepId));
   };
+
+  const selectedFeature = Object
+    .values(data)
+    .flat()
+    .find((feature) => feature.id === selectedFeatureId);
+  const selectedFeatureSubstepIds = new Set(selectedFeature?.substeps.map((substep) => substep.id) ?? []);
 
   const exportEpicToJpg = async (epicName) => {
     const epicNode = epicCardRefs.current[epicName];
@@ -507,7 +523,7 @@ export default function StepTracker() {
         .epic-card { background: #fff; border: 1px solid #D8E4F0; border-radius: 16px; padding: 28px; margin-bottom: 28px; box-shadow: 0 2px 12px rgba(27,47,94,0.07); }
         .feature-row { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid #EDF2F8; border-radius: 10px; transition: background 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease; }
         .feature-row:last-of-type { border-bottom: none; }
-        .substep-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px 7px 16px; border-bottom: 1px dashed #EDF2F8; background: #FAFCFF; border-radius: 10px; transition: background 0.15s ease, box-shadow 0.15s ease; }
+        .substep-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px 7px 32px; border-bottom: 1px dashed #EDF2F8; background: #FAFCFF; border-radius: 10px; transition: background 0.15s ease, box-shadow 0.15s ease; }
         .tooltip { position: absolute; bottom: 34px; left: 50%; transform: translateX(-50%); background: #1B2F5E; border: 1px solid #2A4A6A; color: #fff; font-size: 9px; padding: 3px 7px; border-radius: 5px; white-space: nowrap; pointer-events: none; z-index: 10; }
         .add-btn { background: none; border: 1px dashed #C8D8E8; border-radius: 8px; color: #9AAEC8; font-size: 10px; font-family: 'DM Mono',monospace; cursor: pointer; padding: 5px 12px; transition: all 0.15s; }
         .add-btn:hover { border-color: #4AB8D8; color: #4AB8D8; background: #F0FAFD; }
@@ -663,15 +679,19 @@ export default function StepTracker() {
                   {isExpanded && feature.substeps.map((sub, idx) => {
                     const subAllDone = sub.steps.every(s => s === 2);
                     const isLast = idx === feature.substeps.length - 1;
-                    const isSubstepSelected = selectedSubstepId === sub.id;
+                    const isDirectlySelected = selectedSubstepId === sub.id;
+                    const isInheritedSelection = selectedFeatureSubstepIds.has(sub.id);
+                    const isSubstepSelected = isDirectlySelected || isInheritedSelection;
+                    const substepHighlightBackground = isDirectlySelected ? color.dim : isInheritedSelection ? "#EAF4FF" : undefined;
+                    const substepHighlightBorder = isDirectlySelected ? color.accent : isInheritedSelection ? "#7CB8F5" : undefined;
                     return (
                       <div
                         key={sub.id}
                         className="substep-row"
                         style={{
                           borderBottom: isLast ? "none" : undefined,
-                          background: isSubstepSelected ? color.dim : undefined,
-                          boxShadow: isSubstepSelected ? `inset 0 0 0 1.5px ${color.accent}` : undefined,
+                          background: substepHighlightBackground,
+                          boxShadow: isSubstepSelected ? `inset 0 0 0 1.5px ${substepHighlightBorder}` : undefined,
                         }}
                       >
                         <div style={{ width: 18, display: "flex", alignItems: "center", justifyContent: "flex-end", flexShrink: 0 }}>
@@ -686,7 +706,7 @@ export default function StepTracker() {
                           className="sub-add-btn"
                           onClick={() => toggleSubstepHighlight(sub.id)}
                           title={isSubstepSelected ? "Highlight verwijderen" : "Substap highlighten"}
-                          style={{ color: isSubstepSelected ? color.accent : undefined }}
+                          style={{ color: substepHighlightBorder ?? undefined }}
                           data-export-ignore="true"
                         >
                           {isSubstepSelected ? "★" : "☆"}
